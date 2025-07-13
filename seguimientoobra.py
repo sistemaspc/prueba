@@ -1,59 +1,51 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 
-st.set_page_config(page_title="Seguimiento de Obra PCM", layout="wide")
+st.title("📦 Seguimiento de Obra - PCM Ingeniería")
 
-st.title("🗒️ Seguimiento de Obra PCM")
-st.markdown("Este es un prototipo para visualizar datos de seguimiento de obra desde archivos locales.")
+# Cargar archivos
+st.sidebar.header("🔽 Subir Archivos Excel")
 
-# --- Sección de carga de archivos ---
-st.subheader("📂 Carga de archivos")
+salidas_file = st.sidebar.file_uploader("Sube archivo de SALIDAS", type=["xlsx"], key="salidas")
+entradas_file = st.sidebar.file_uploader("Sube archivo de ENTRADAS", type=["xlsx"], key="entradas")
+obras_file   = st.sidebar.file_uploader("Sube archivo de OBRAS", type=["xlsx"], key="obras")
 
-col1, col2, col3 = st.columns(3)
+# Verifica si todos los archivos fueron cargados
+if salidas_file and entradas_file and obras_file:
+    try:
+        df_salidas = pd.read_excel(salidas_file)
+        df_entradas = pd.read_excel(entradas_file)
+        df_obras = pd.read_excel(obras_file)
 
-with col1:
-    entradas_file = st.file_uploader("Sube el archivo de **entradas**", type=["xlsx"], key="entradas")
-with col2:
-    salidas_file = st.file_uploader("Sube el archivo de **salidas**", type=["xlsx"], key="salidas")
-with col3:
-    obras_file = st.file_uploader("Sube el archivo de **obras**", type=["xlsx"], key="obras")
+        st.success("✅ Archivos cargados correctamente")
 
-# --- Validación de archivos cargados ---
-if not entradas_file or not salidas_file or not obras_file:
-    st.error("⚠️ Debes subir los tres archivos: entradas, salidas y obras para continuar.")
-    st.stop()
+        # Validación básica de columnas necesarias
+        columnas_salidas = {'oth_numero', 'cco_codigo', 'art_nombre', 'sad_cantidad'}
+        columnas_entradas = {'oth_numero', 'art_nombre', 'end_cantidad'}
+        columnas_obras = {'oth_numero', 'oth_nombre', 'cco_codigo'}
 
-# --- Lectura de archivos cargados ---
-entradas_df = pd.read_excel(entradas_file)
-salidas_df = pd.read_excel(salidas_file)
-obras_df = pd.read_excel(obras_file)
+        if columnas_salidas.issubset(df_salidas.columns) and \
+           columnas_entradas.issubset(df_entradas.columns) and \
+           columnas_obras.issubset(df_obras.columns):
 
-# --- Validación básica de columnas esperadas ---
-col_entradas = {'fecha', 'material', 'cantidad', 'oth_numero'}
-col_salidas = {'fecha', 'material', 'cantidad', 'oth_numero'}
-col_obras = {'oth_numero', 'oth_nombre', 'cco_codigo'}
+            st.subheader("📊 Resumen de Datos")
 
-if not col_entradas.issubset(set(entradas_df.columns)) or \
-   not col_salidas.issubset(set(salidas_df.columns)) or \
-   not col_obras.issubset(set(obras_df.columns)):
-    st.error("⚠️ Las columnas de los archivos no coinciden con lo esperado.")
-    st.stop()
+            st.write("### Obras disponibles:")
+            st.dataframe(df_obras[['oth_numero', 'oth_nombre', 'cco_codigo']].drop_duplicates())
 
-# --- Unificación con nombre de obra ---
-entradas_df = entradas_df.merge(obras_df, on='oth_numero', how='left')
-salidas_df = salidas_df.merge(obras_df, on='oth_numero', how='left')
+            st.write("### Top materiales con más salidas:")
+            top_materiales = df_salidas.groupby('art_nombre')['sad_cantidad'].sum().sort_values(ascending=False).head(10)
+            st.bar_chart(top_materiales)
 
-# --- Cálculo de resumen por obra ---
-resumen_entradas = entradas_df.groupby('oth_nombre')['cantidad'].sum().reset_index(name='Total Entradas')
-resumen_salidas = salidas_df.groupby('oth_nombre')['cantidad'].sum().reset_index(name='Total Salidas')
+            st.write("### Entradas totales por material:")
+            entradas_sum = df_entradas.groupby('art_nombre')['end_cantidad'].sum().sort_values(ascending=False).head(10)
+            st.bar_chart(entradas_sum)
 
-resumen = pd.merge(resumen_entradas, resumen_salidas, on='oth_nombre', how='outer').fillna(0)
-resumen['Inventario Actual'] = resumen['Total Entradas'] - resumen['Total Salidas']
+        else:
+            st.error("❌ Los archivos no contienen las columnas requeridas. Verifica nombres como 'oth_numero', 'cco_codigo', 'art_nombre', etc.")
 
-st.subheader("📊 Resumen de inventario por obra")
-st.dataframe(resumen, use_container_width=True)
+    except Exception as e:
+        st.exception(f"Error al procesar los archivos: {e}")
 
-# --- Visualización gráfica ---
-fig = px.bar(resumen, x="oth_nombre", y="Inventario Actual", title="Inventario Actual por Obra", text_auto=True)
-st.plotly_chart(fig, use_container_width=True)
+else:
+    st.warning("⬅️ Carga los tres archivos para continuar (salidas, entradas y obras)")
