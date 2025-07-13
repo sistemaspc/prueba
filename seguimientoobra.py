@@ -1,70 +1,56 @@
-# app.py
-
 import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# Título
-st.markdown("<h1 style='font-size: 36px;'>📋 Seguimiento de Obra PCM</h1>", unsafe_allow_html=True)
-st.markdown("Sube los archivos locales de entradas, salidas y obras para visualizar los datos.")
+st.set_page_config(page_title="Seguimiento de Obra PCM", layout="wide")
 
-# Subida de archivos
-st.sidebar.markdown("### 📤 Carga tus archivos")
-archivo_entradas = st.sidebar.file_uploader("Sube el archivo de ENTRADAS (.xlsx)", type=["xlsx"], key="entradas")
-archivo_salidas = st.sidebar.file_uploader("Sube el archivo de SALIDAS (.xlsx)", type=["xlsx"], key="salidas")
-archivo_obras = st.sidebar.file_uploader("Sube el archivo de OBRAS (.xlsx)", type=["xlsx"], key="obras")
+st.markdown("## 📝 Seguimiento de Obra PCM")
+st.markdown("Este es un prototipo para visualizar datos de seguimiento de obra desde archivos locales.")
 
-# Validación: si los 3 archivos están cargados
-if archivo_entradas and archivo_salidas and archivo_obras:
+# Sección para cargar archivos
+st.sidebar.header("📁 Cargar Archivos Excel")
 
-    # Cargar archivos
-    entradas = pd.read_excel(archivo_entradas)
-    salidas = pd.read_excel(archivo_salidas)
-    obras = pd.read_excel(archivo_obras)
+uploaded_entradas = st.sidebar.file_uploader("📥 Subir archivo de ENTRADAS", type=["xlsx"], key="entradas")
+uploaded_salidas = st.sidebar.file_uploader("📤 Subir archivo de SALIDAS", type=["xlsx"], key="salidas")
+uploaded_obras = st.sidebar.file_uploader("📂 Subir archivo de OBRAS", type=["xlsx"], key="obras")
 
-    # Normalizar nombres de columnas
-    entradas.columns = entradas.columns.str.lower().str.strip()
-    salidas.columns = salidas.columns.str.lower().str.strip()
-    obras.columns = obras.columns.str.lower().str.strip()
-
-    # Validar existencia de columna 'oth_numero' en todos los archivos
-    columnas_requeridas = ['oth_numero']
-    for df_nombre, df in zip(['Entradas', 'Salidas', 'Obras'], [entradas, salidas, obras]):
-        for col in columnas_requeridas:
-            if col not in df.columns:
-                st.error(f"❌ La columna '{col}' no está en el archivo de {df_nombre}. Verifica los nombres de columna.")
-                st.stop()
-
-    # Hacer merge con obras
-    entradas = entradas.merge(obras, on='oth_numero', how='left')
-    salidas = salidas.merge(obras, on='oth_numero', how='left')
-
-    # Selección de vista
-    tipo_vista = st.radio("Selecciona tipo de vista", ["Entradas", "Salidas"])
-    datos = entradas if tipo_vista == "Entradas" else salidas
-
-    # Filtro de O.T.
-    ot_unicas = datos['oth_numero'].dropna().unique()
-    ot_seleccionada = st.selectbox("Selecciona una Orden de Trabajo (O.T.)", ot_unicas)
-
-    # Mostrar datos
-    df_filtrado = datos[datos['oth_numero'] == ot_seleccionada]
-
-    if df_filtrado.empty:
-        st.warning("No se encontraron datos para la O.T. seleccionada.")
-    else:
-        nombre_obra = df_filtrado['oth_nombre'].iloc[0] if 'oth_nombre' in df_filtrado.columns else "Desconocida"
-        st.subheader(f"📌 Datos para O.T. {ot_seleccionada} - {nombre_obra}")
-
-        columnas_a_mostrar = ['fecha', 'material', 'articulo', 'cantidad', 'oth_numero']
-        if 'oth_nombre' in df_filtrado.columns:
-            columnas_a_mostrar.append('oth_nombre')
-
-        st.dataframe(df_filtrado[columnas_a_mostrar])
-
-        resumen = df_filtrado.groupby('articulo')['cantidad'].sum().reset_index()
-        fig = px.bar(resumen, x='articulo', y='cantidad', title='Total por artículo')
-        st.plotly_chart(fig)
-
+# Validación de carga
+if uploaded_entradas is None or uploaded_salidas is None or uploaded_obras is None:
+    st.error("❌ No se encontraron los tres archivos requeridos (entradas, salidas y obras). Súbelos desde la barra lateral.")
 else:
-    st.info("📂 Por favor, sube los tres archivos para comenzar: Entradas, Salidas y Obras.")
+    try:
+        df_entradas = pd.read_excel(uploaded_entradas)
+        df_salidas = pd.read_excel(uploaded_salidas)
+        df_obras = pd.read_excel(uploaded_obras)
+
+        # Verifica las columnas esperadas en obras
+        if 'cco_codigo' not in df_obras.columns or 'oth_nombre' not in df_obras.columns:
+            st.error("❌ El archivo de obras debe tener las columnas: 'cco_codigo' y 'oth_nombre'.")
+        else:
+            # Unir las obras a las salidas
+            df_salidas = df_salidas.merge(df_obras[['cco_codigo', 'oth_nombre']], how='left', on='cco_codigo')
+
+            st.success("✅ Archivos cargados correctamente.")
+
+            # Mostrar vista previa
+            with st.expander("🔍 Vista previa de las Entradas"):
+                st.dataframe(df_entradas.head(10), use_container_width=True)
+
+            with st.expander("🔍 Vista previa de las Salidas (ya incluye 'oth_nombre')"):
+                st.dataframe(df_salidas.head(10), use_container_width=True)
+
+            with st.expander("📑 Vista previa de Obras"):
+                st.dataframe(df_obras.head(10), use_container_width=True)
+
+            # Gráfico de ejemplo por obra
+            st.markdown("### 📊 Consumo por Obra (basado en salidas)")
+            if 'oth_nombre' in df_salidas.columns:
+                consumo_por_obra = df_salidas['oth_nombre'].value_counts().reset_index()
+                consumo_por_obra.columns = ['Obra', 'Cantidad']
+                fig = px.bar(consumo_por_obra, x='Obra', y='Cantidad', title="Cantidad de salidas por obra")
+                st.plotly_chart(fig, use_container_width=True)
+            else:
+                st.warning("No se puede generar el gráfico porque falta 'oth_nombre'.")
+
+    except Exception as e:
+        st.error(f"⚠️ Error al procesar los archivos: {e}")
